@@ -1,0 +1,410 @@
+#include <SoftwareSerial.h>
+
+SoftwareSerial mySerial(9, 8); // RX, TX
+#define PIN(N) (1<<N)
+
+/* TWI */
+//#define TWI0_MCTRLA   (unsigned char*)(0x08A3)
+//#define TWI0_MCTRLB   (unsigned char*)(0x08A4)
+//define TWI0_MSTATUS  (unsigned char*)(0x08A5)
+//define TWI0_MBAUD    (unsigned char*)(0x08A6)
+//#define TWI0_MADDR    (unsigned char*)(0x08A7)
+//#define TWI0_MDATA    (unsigned char*)(0x08A8)
+//#define TWI_WIF_bm  0x40
+//#define TWI_RIF_bm  0x80
+//#define TWI_ACKACT_ACK_gc      (0x00<<2)
+//#define TWI_ACKACT_NACK_gc     (0x01<<2)
+//#define TWI_MCMD_RECVTRANS_gc  (0x02<<0)
+//#define TWI_MCMD_STOP_gc       (0x03<<0)
+
+/* PORT */
+//#define PORTE_DIR   (unsigned char*)(0x0480)
+//#define PORTE_OUT   (unsigned char*)(0x0484)
+//#define PORTF_DIR   (unsigned char*)(0x04A0)
+//#define PORTF_OUT   (unsigned char*)(0x04A4)
+//#define PORTB_DIR (unsigned char*) (0x0420)
+//#define PORTD_PIN0CTRL (unsigned char*) (0x0470)
+//#define PORTD_PIN1CTRL (unsigned char*) (0x0471)
+
+//PORT_ISC_INPUT_DISABLE_gc (0x04<<0)
+
+///* PWM by TCB0 , TCB 1 */
+//#define TCA0_SINGLE_CTRLA   (unsigned char *)(0x0A00)
+//#define TCA_SINGLE_CLKSEL_DIV1024_gc (0x07<<1)
+//#define TCA_SINGLE_ENABLE_bm (0x01)
+
+//#define TCB0_CTRLA         (unsigned char*)(0x0A80)
+//#define TCB0_CTRLB         (unsigned char*)(0x0A81)
+//#define TCB0_CNTL         (unsigned char*) (0x0A8A)
+//#define TCB0_CNTH         (unsigned char*) (0x0A8B)
+//#define TCB0_CCMPL         (unsigned char*) (0x0A8C)
+//#define TCB0_CCMPH         (unsigned char*) (0x0A8D)
+//#define TCB1_CTRLA         (unsigned char*)(0x0A90)
+//#define TCB1_CTRLB         (unsigned char*)(0x0A91)
+//#define TCB1_CNTL         (unsigned char*) (0x0A9A)
+//#define TCB1_CNTH         (unsigned char*) (0x0A9B)
+//#define TCB1_CCMPL         (unsigned char*) (0x0A9C)
+//#define TCB1_CCMPH         (unsigned char*) (0x0A9D)
+
+//#define TCB_CLKSEL_CLKTCA_gc (0x02<<1)
+//#define TCB_CNTMODE_PWM8_gc (0x07<<0)
+//#define TCA_SINGLE_ENABLE_bm (0x01)
+//#define TCB_ENABLE_bm (0x01)
+//#define TCB_CCMPEN_bm  (0x10)
+
+//#define PORTMUX_TCBROUTEA (unsigned char*) (0x05E5)
+//#define PORTMUX_TCB0_bm  (0x01)
+//#define PORTMUX_TCB1_bm  (0x02)  
+
+///* ADC0 for PhotoResister */
+//#define ADC0_CTRLA      (unsigned char *)   (0x0600)
+//#define ADC0_CTRLC      (unsigned char *)   (0x0602)
+//#define ADC0_MUXPOS   (unsigned char *)   (0x0606)
+//#define ADC0_COMMAND   (unsigned char *)   (0x0608)
+//#define ADC0_RESL      (unsigned int *)   (0x0610)
+//#define ADC0_INTCTRL  (unsigned char *) (0x060A)
+//#define ADC0_INTFLAGS (unsigned char *) (0x060B)
+//#define ADC_RESSEL_8BIT_gc (0x01 << 2)
+//#define ADC_ENABLE_bm      (0x01)
+//#define ADC_STCONV_bm      (0x01)
+//#define ADC_FREERUN_bm (0x01<<1)
+//#define ADC_RESRDY_bm (0x01<<0)
+//#define PORT_ISC_INPUT_DISABLE_gc   (0x1 << 2)
+//#define ADC_PRESC_DIV256_gc (0x07<<0)
+//#define ADC_REFSEL_VDDREF_gc      (0x01 << 4)*/
+
+/* Gyro Sensor variable */
+int16_t  raw_Acc_x,raw_Acc_y,raw_Acc_z;
+int16_t  raw_Gyro_x,raw_Gyro_y,raw_Gyro_z;
+int16_t  raw_temp;
+//센서에서 받은 값 저장할 변수
+float Gyro_x_inital, Gyro_y_inital, Gyro_z_inital;
+int16_t data_array[7];
+//초기값 설정을 위한 변수
+float Acc_x, Acc_y, Acc_z;
+float Gyro_x, Gyro_y, Gyro_z;
+float angle_x,angle_z,angle_y;
+//필터를 계산하는데 값을 저장할 변수
+float last_x_angle, last_y_angle, last_z_angle; 
+float last_Gyro_x_angle,last_Gyro_y_angle,last_Gyro_z_angle; 
+//이전의 값을 저장할 변수
+float accel_angle_y, accel_angle_x, accel_angle_z;
+float unfiltered_Gyro_angle_x, unfiltered_Gyro_angle_y, unfiltered_Gyro_angle_z;
+
+float dt;
+unsigned long last_time=0;
+
+
+/* PID Variable */
+float input;
+float output;
+float lastInput = 0;
+
+unsigned long lastTime = 0;
+float setpoint = -3.95; // roll축 기대값
+
+float error = 0;
+float last_error=0;
+//측정값과 목표값의 오차
+
+float P_out;
+float I_out;
+float D_out;
+//각 PID gain에 의해 계산된 값의 변수
+
+float Kp = 16;
+float Ki = 10;
+float Kd = 0.0035;
+//각 PID Gain 값
+
+float MAX = 255;
+float MIN = -255;
+//큰 값, 작은 값 보정하기 위한 값
+
+/* ADC varaible */
+uint8_t Ain1;
+uint8_t Ain2;
+
+/* Motor variable */
+bool check;
+bool light = true;
+uint8_t integer_output;
+
+/* I2C function */
+void TWI0_init(){
+  TWI0_MBAUD =40; //twi clock을 설정하는 부분
+  TWI0_MCTRLA |=(1<<0);// twi를 마스터 모드로 사용한다는 부분
+  TWI0_MCTRLB |=(1<<3);//FLUSH bm을 하는 부분 마스터 내부상태를 지움
+  TWI0_MSTATUS = (0x01<<0);//bus의 상태를 idle하게 설정
+}
+void TWI0_setup() {
+
+  TWI0_start_write();//write 시작
+  TWI0_write(0x6B);// 0x6B 가속도값의 시작하여 읽음.
+  TWI0_write(0); //sleep을 깸
+  TWI0_stop();//twi 통신 stop
+}
+
+void TWI0_start_read(){// read시작하게 하는 함수
+  TWI0_MADDR = (0x68 << 1) + 1;  //mpu-6050의 twi address와 read bit
+  while (!(TWI0_MSTATUS & (TWI_WIF_bm | TWI_RIF_bm)));  
+}
+
+void TWI0_start_write(){// write시작하게 하는 함수 
+  TWI0_MADDR = (0x68 << 1) + 0;  //mpu-6050의 twi address와 write bit
+  while (!(TWI0_MSTATUS & (TWI_WIF_bm | TWI_RIF_bm))); 
+}
+void TWI0_write(uint8_t data) {
+  while (!(TWI0_MSTATUS & TWI_WIF_bm));//write flag 확인
+  TWI0_MDATA = data; //data 전송
+  TWI0_MCTRLB = TWI_MCMD_RECVTRANS_gc;
+}
+
+uint8_t TWI0_read(){ 
+  while (!(TWI0_MSTATUS & TWI_RIF_bm)); //read flag 확인
+  uint8_t data = TWI0_MDATA;
+  return data;
+}
+void Ackcontroll(){
+   TWI0_MCTRLB = (TWI_ACKACT_ACK_gc  | TWI_MCMD_RECVTRANS_gc);//ack 신호
+}
+void Nackcontroll(){   
+  TWI0_MCTRLB = (TWI_ACKACT_NACK_gc | TWI_MCMD_STOP_gc);//nack 신호 
+}
+void TWI0_stop(void) {
+  TWI0_MCTRLB =(0x03<<0);
+}
+
+void read_gyro_sensor(){// 자이로 센서로 부터 데이터를 twi 통신을 통해 통신
+    TWI0_start_write();
+    TWI0_write(0x3B);
+    TWI0_start_read();
+    uint8_t temp;
+    uint8_t temp1;
+    for(int i=0;i<6;i++){
+      temp=TWI0_read();
+      Ackcontroll();
+      temp1=TWI0_read();
+      Ackcontroll();
+      data_array[i]=((temp << 8) | temp1);
+    }
+      temp=TWI0_read();
+      Ackcontroll();
+      temp1=TWI0_read();
+      Nackcontroll();
+      data_array[6]=((temp << 8) | temp1);
+}
+
+void complementary_filter(){// 자이로 값과 가속도 값으로 상보필터 적용
+    unsigned long now_time = millis();
+    read_gyro_sensor();
+    raw_Acc_x=data_array[0];
+    raw_Acc_y=data_array[1];
+    raw_Acc_z=data_array[2];
+    raw_Gyro_x=data_array[4];
+    raw_Gyro_y=data_array[5];
+    raw_Gyro_z=data_array[6];
+    
+    Acc_x = ((float)raw_Acc_x)/16384.0;
+    Acc_y = ((float)raw_Acc_y)/16384.0;
+    Acc_z = ((float)raw_Acc_z)/16384.0;
+    
+    Gyro_x = ((float)raw_Gyro_x - Gyro_x_inital) / 131;
+    Gyro_y = ((float)raw_Gyro_y - Gyro_y_inital) / 131;
+    Gyro_z = ((float)raw_Gyro_z - Gyro_z_inital) / 131;
+   
+    accel_angle_y = atan(Acc_x/sqrt(pow(Acc_y, 2) + pow(Acc_z, 2)))*-180/3.1415;
+    accel_angle_x = atan(Acc_y/sqrt (pow(Acc_x, 2) + pow(Acc_z, 2)))*180/3.1415;    
+    accel_angle_z = 0;
+
+    dt = 10.0 / 1000.0;
+
+    float gyro_angle_x = Gyro_x*dt +last_x_angle;
+    float gyro_angle_y = Gyro_y*dt +last_y_angle;
+    float gyro_angle_z = Gyro_z*dt +last_z_angle;
+    float alpha = 0.98;
+     
+    angle_x = (alpha)*gyro_angle_x + (1-alpha)*accel_angle_x;
+    angle_y = (alpha)*gyro_angle_y + (1-alpha)*accel_angle_y;
+    angle_z = gyro_angle_z;  
+    //Accelerometer doesn't give z-angle 
+    last_time = now_time;
+    last_x_angle = angle_x;
+    last_y_angle = angle_y;
+    last_z_angle = angle_z;
+     
+}
+
+void initial_value_set(){//자이로의 초기 값 설정
+  float Gyro_x_temp = 0, Gyro_y_temp = 0, Gyro_z_temp = 0;
+  int16_t rawx, rawy, rawz;
+  int16_t gyro_array[3];
+  uint8_t temp;
+  uint8_t temp1;
+  for (int i = 0; i < 30; i++) {
+    TWI0_start_write();//write
+    TWI0_write(0x43);// gyro read
+    TWI0_start_read();//read
+    for(int i=0;i<2;i++){
+      temp=TWI0_read();
+      Ackcontroll();
+      temp1=TWI0_read();
+      Ackcontroll();
+      data_array[i]=((temp << 8) | temp1);
+    }
+    temp=TWI0_read();
+    Ackcontroll();
+    temp1=TWI0_read();
+    Nackcontroll();
+    data_array[2]=((temp << 8) | temp1);
+    Gyro_x_temp += ((float)data_array[0]);
+    Gyro_y_temp += ((float)data_array[1]);
+    Gyro_z_temp += ((float)data_array[2]);
+  }
+
+  Gyro_x_inital = Gyro_x_temp / 30.0;
+  Gyro_y_inital = Gyro_y_temp / 30.0;
+  Gyro_z_inital = Gyro_z_temp / 30.0;
+}
+
+/* ADC function */
+void ADC_init(void){
+   PORTD_PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;
+   PORTD_PIN1CTRL = PORT_ISC_INPUT_DISABLE_gc;
+   
+   ADC0_CTRLC |= (ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc); // VDD = voltage reference
+   ADC0_CTRLA |= (ADC_FREERUN_bm | ADC_ENABLE_bm | ADC_RESSEL_8BIT_gc); // ADC activation
+   
+}
+
+uint8_t ADC_Read(uint8_t ch){
+   ADC0_MUXPOS = ch;
+   ADC0_INTFLAGS = ADC_RESRDY_bm;
+   ADC0_COMMAND = ADC_STCONV_bm; // start ADC
+   while(!(ADC0_COMMAND) & ADC_STCONV_bm); // Conversion이 끝날 때 까지 기다림
+   return ADC0_RESL; // return 8bit integer
+}
+
+/* TCB0, TCB1 function */
+void TCB_init(){
+   
+   PORTMUX_TCBROUTEA = (PORTMUX_TCB0_bm | PORTMUX_TCB1_bm);
+   TCA0_SINGLE_CTRLA = (TCA_SINGLE_CLKSEL_DIV1024_gc| TCA_SINGLE_ENABLE_bm);
+   TCB0_CTRLA = (TCB_ENABLE_bm | TCB_CLKSEL_CLKTCA_gc);
+   TCB1_CTRLA = (TCB_ENABLE_bm | TCB_CLKSEL_CLKTCA_gc);
+   PORTF_DIR |= (PIN(4) | PIN(5));
+   
+   TCB0_CTRLB = (TCB_CCMPEN_bm | TCB_CNTMODE_PWM8_gc);
+   TCB1_CTRLB = (TCB_CCMPEN_bm | TCB_CNTMODE_PWM8_gc);
+   
+   
+   TCB0_CCMPL=0xFF;
+   TCB1_CCMPL=0xFF;
+}
+
+void TCB_Reset(){
+   TCB0_CTRLA = 0;
+   TCB0_CTRLB = 0;
+   TCB0_CCMPH= 0;
+   TCB0_CCMPL = 0;
+   TCB1_CTRLA=0;
+   TCB1_CTRLB = 0;
+   TCB1_CCMPH= 0;
+   TCB1_CCMPL = 0;
+}
+
+/* PORT */
+void PORT_init(){
+   PORTE_DIR = PIN(0) | PIN(1) | PIN(2) | PIN(3); //모터 방향을 위한 PIN
+   PORTF_OUT |= (PIN(4) | PIN(5)); //PWM PIN
+}
+
+
+/* MOTOR */
+void moveMotor(bool flag, int speed) {
+   if (speed > 255) speed = 255; // 최대값 설정
+    
+   if (flag == true) {
+      PORTE_OUT = PIN(1) | PIN(2);
+   }//앞으로 가야하는 경우
+   else {
+      PORTE_OUT = PIN(3) | PIN(0); 
+   } //뒤로 가야하는 경우
+
+   TCB0_CCMPH=speed;
+   TCB1_CCMPH=speed;
+
+   return;
+}
+
+/* PID function */
+float PID(float input){
+    unsigned long now = millis();
+    float Term = 10.0/1000;
+    error = setpoint - input; // error = 기대값과 측정값의 오차
+    P_out = Kp * error;
+    I_out += (Ki*error)*Term;
+    D_out = (Kd*(error-last_error))/Term;
+      
+    last_error = error; // 마지막 오차 저장
+    lastTime = now; // lastTime에 now를 넣어줌
+   
+    output = P_out+I_out+D_out; // 계산된 output이 -255 ~ 255 사이에 있도록 함
+    if(output > MAX){
+      output = MAX;
+    }
+    if(output < MIN){
+      output = MIN;
+    }
+    return output;
+}
+
+void setup(){
+    mySerial.begin(19200);
+    TCB_Reset();
+    TCB_init();
+    ADC_init();
+    PORT_init();
+    TWI0_init();
+    TWI0_setup();
+    delay(1000); // 초기 자이로 값 안정을 위한 지연시간
+    initial_value_set();
+  
+}
+void loop(){
+
+    complementary_filter(); // 상보필터 적용
+
+    input = angle_y; //PID 계산을 위해 필터링 된 roll값으로 PID연산 진행
+    if(light){
+      Ain1 = ADC_Read(0);
+      light = false;
+    }
+    else{
+      Ain2 = ADC_Read(1);
+      light = true;
+    }
+    /* ADC에 따라 해당하는 방향으로 이동 */
+    if(Ain1>130){
+      output = PID(input+3.5);
+    }
+    else if(Ain2>130){
+      output = PID(input-2.7);
+    }
+    else{
+      output = PID(input);
+    }  
+    
+    /* 모터의 방향 결정 */
+    if( output < 0){
+      check = true;
+    }
+    else{
+      check = false;
+    }
+
+    integer_output = abs(output); // 양수를 위해 절댓값 설정
+
+    moveMotor(!check,integer_output); //계산된 output 만큼 모터 회전
+
+}
